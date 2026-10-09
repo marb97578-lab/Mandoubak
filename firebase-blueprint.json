@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "CloudBackup": {
+      "title": "CloudBackup",
+      "description": "User cloud database backup archive for Mandoubak Room Database",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique backup document ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID"
+        },
+        "title": {
+          "type": "string",
+          "description": "User visible backup title"
+        },
+        "backupType": {
+          "type": "string",
+          "description": "Backup category: MANUAL, DAILY, WEEKLY, or CLOUD"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Backup creation timestamp in milliseconds"
+        },
+        "formattedDate": {
+          "type": "string",
+          "description": "Human readable date string"
+        },
+        "totalRecords": {
+          "type": "number",
+          "description": "Total number of records in the backup"
+        },
+        "productsCount": {
+          "type": "number",
+          "description": "Number of products"
+        },
+        "clientsCount": {
+          "type": "number",
+          "description": "Number of clients"
+        },
+        "suppliersCount": {
+          "type": "number",
+          "description": "Number of suppliers"
+        },
+        "invoicesCount": {
+          "type": "number",
+          "description": "Number of sales invoices"
+        },
+        "purchasesCount": {
+          "type": "number",
+          "description": "Number of purchase invoices"
+        },
+        "receiptsCount": {
+          "type": "number",
+          "description": "Number of payment receipts"
+        },
+        "expensesCount": {
+          "type": "number",
+          "description": "Number of expenses"
+        },
+        "stockMovementsCount": {
+          "type": "number",
+          "description": "Number of stock movements"
+        },
+        "payloadJson": {
+          "type": "string",
+          "description": "Full JSON serialized Room Database payload"
+        },
+        "checksumSha256": {
+          "type": "string",
+          "description": "Cryptographic SHA-256 hash verifying payload integrity"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server creation timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "timestamp",
+        "totalRecords",
+        "payloadJson",
+        "checksumSha256"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/backups/{backupId}": {
+      "schema": "CloudBackup",
+      "description": "Private cloud database backup archives for Mandoubak Room Database"
+    }
+  }
+}

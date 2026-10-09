@@ -27,7 +27,10 @@ import androidx.compose.material.icons.filled.Brightness7
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Delete
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
@@ -45,6 +49,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -85,6 +90,7 @@ import com.example.ui.theme.ThemeCategory
 import com.example.ui.theme.ThemeConfig
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.ThemeRepository
+import com.example.data.cloud.CloudBackupRecord
 import com.example.util.BackupFileInfo
 import com.example.util.CurrencyConfig
 import com.example.util.CurrencyItem
@@ -232,12 +238,114 @@ fun BackupRestoreDialog(
     onDeleteBackup: (BackupFileInfo) -> Unit,
     onShareBackup: (BackupFileInfo) -> Unit,
     onImportExternalFile: () -> Unit,
+    isCloudSignedIn: Boolean = false,
+    cloudUserEmail: String? = null,
+    cloudBackups: List<CloudBackupRecord> = emptyList(),
+    isCloudLoading: Boolean = false,
+    cloudStatusMessage: String? = null,
+    onSignInWithGoogle: () -> Unit = {},
+    onSignOutFromCloud: () -> Unit = {},
+    onUploadCloudBackup: () -> Unit = {},
+    onRefreshCloudBackups: () -> Unit = {},
+    onRestoreCloudBackup: (CloudBackupRecord) -> Unit = {},
+    onDeleteCloudBackup: (CloudBackupRecord) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedFreq by remember { mutableStateOf(autoBackupFrequency) }
     var autoEnabled by remember { mutableStateOf(autoBackupEnabled) }
+    var selectedTab by remember { mutableStateOf(0) } // 0: Cloud (Firebase), 1: Local (Room)
     var backupToRestore by remember { mutableStateOf<BackupFileInfo?>(null) }
     var backupToDelete by remember { mutableStateOf<BackupFileInfo?>(null) }
+    var cloudBackupToRestore by remember { mutableStateOf<CloudBackupRecord?>(null) }
+    var cloudBackupToDelete by remember { mutableStateOf<CloudBackupRecord?>(null) }
+
+    // Confirmation Alert for Cloud Restore
+    cloudBackupToRestore?.let { backup ->
+        AlertDialog(
+            onDismissRequest = { cloudBackupToRestore = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = MandoubakBlue, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تأكيد استعادة النسخة الاحتياطية", fontWeight = FontWeight.Bold, color = MandoubakNavy, fontSize = 15.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "هل أنت متأكد من استعادة النسخة الاحتياطية السحابية من Firebase:\n(${backup.title})؟",
+                        fontSize = 13.sp,
+                        color = MandoubakNavy,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "• تاريخ النسخة: ${backup.formattedDate}\n• إجمالي السجلات: ${backup.totalRecords} سجل\n• الحجم: ${backup.formattedSize}",
+                        fontSize = 12.sp,
+                        color = MandoubakTextSecondary
+                    )
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "⚠️ تنبيه هام حول البيانات المحلية:",
+                                color = Color(0xFFB45309),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "استعادة النسخة الاحتياطية ستقوم باستبدال البيانات المحلية الحالية في قاعدة بيانات Room بالبيانات المستعادة بدقة، بما يشمل كافة المنتجات، العملاء، الموردين، الفواتير، المخزون، المصروفات، والتقارير.",
+                                color = Color(0xFF92400E),
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val b = cloudBackupToRestore
+                        cloudBackupToRestore = null
+                        if (b != null) onRestoreCloudBackup(b)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MandoubakNavy)
+                ) {
+                    Text("نعم، استعادة النسخة", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { cloudBackupToRestore = null }) { Text("إلغاء", color = MandoubakTextSecondary) }
+            }
+        )
+    }
+
+    // Confirmation Alert for Cloud Delete
+    cloudBackupToDelete?.let { backup ->
+        AlertDialog(
+            onDismissRequest = { cloudBackupToDelete = null },
+            title = { Text("حذف النسخة السحابية", fontWeight = FontWeight.Bold, color = Color(0xFFDC2626)) },
+            text = { Text("هل أنت متأكد من حذف النسخة السحابية (${backup.title}) نهائياً من سحابة Firebase؟") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val b = cloudBackupToDelete
+                        cloudBackupToDelete = null
+                        if (b != null) onDeleteCloudBackup(b)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("حذف من السحابة", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { cloudBackupToDelete = null }) { Text("إلغاء") }
+            }
+        )
+    }
 
     // Confirmation Alert for Restore
     backupToRestore?.let { backup ->
@@ -325,17 +433,17 @@ fun BackupRestoreDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(Color(0xFFEFF6FF)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = MandoubakBlue, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = MandoubakBlue, modifier = Modifier.size(22.dp))
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    Text("النسخ الاحتياطي والاستعادة", fontWeight = FontWeight.Bold, color = MandoubakNavy, fontSize = 16.sp)
-                    Text("أمان وسلامة البيانات 100% بدون إنترنت", fontSize = 11.5.sp, color = MandoubakTextSecondary)
+                    Text("Backup & Restore (النسخ الاحتياطي)", fontWeight = FontWeight.Bold, color = MandoubakNavy, fontSize = 15.5.sp)
+                    Text("قاعدة بيانات Room محلياً • سحابة Firebase الآمنة", fontSize = 11.sp, color = MandoubakTextSecondary)
                 }
             }
         },
@@ -344,7 +452,415 @@ fun BackupRestoreDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Auto-backup configuration card
+                // Section Tabs: Cloud vs Local
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFF1F5F9))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (selectedTab == 0) Color.White else Color.Transparent
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (selectedTab == 0) 2.dp else 0.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedTab = 0 }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CloudUpload,
+                                    contentDescription = null,
+                                    tint = if (selectedTab == 0) MandoubakBlue else MandoubakTextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "النسخ السحابي (Firebase)",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selectedTab == 0) MandoubakNavy else MandoubakTextSecondary
+                                )
+                            }
+                        }
+
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (selectedTab == 1) Color.White else Color.Transparent
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (selectedTab == 1) 2.dp else 0.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedTab = 1 }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Storage,
+                                    contentDescription = null,
+                                    tint = if (selectedTab == 1) MandoubakBlue else MandoubakTextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "النسخ المحلي (Room)",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selectedTab == 1) MandoubakNavy else MandoubakTextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ========================================================
+                // TAB 0: CLOUD BACKUP (FIREBASE FIRESTORE)
+                // ========================================================
+                if (selectedTab == 0) {
+                    // Offline / Room Database Architecture Clarification
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "المعمارية: العمل بدون إنترنت أولاً",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.5.sp,
+                                        color = MandoubakNavy
+                                    )
+                                    Text(
+                                        text = "جميع العمليات اليومية تُخزن محلياً في قاعدة بيانات Room وتعمل دائماً دون الحاجة لشبكة الإنترنت. خدمة Firebase مخصصة حصرياً للنسخ السحابي الاحتياطي والاستعادة.",
+                                        fontSize = 10.5.sp,
+                                        color = MandoubakTextSecondary,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Google Account Status & Auth Gate
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCloudSignedIn) Color(0xFFEFF6FF) else Color(0xFFFEFCE8)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (isCloudSignedIn) Color(0xFFBFDBFE) else Color(0xFFFEF08A)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!isCloudSignedIn) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CloudQueue, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "ربط حساب Google للنسخ السحابي",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp,
+                                            color = Color(0xFFB45309)
+                                        )
+                                    }
+                                    Text(
+                                        text = "قم بتسجيل الدخول بحساب Google لتمكين رفع واستعادة النسخ الاحتياطية على سحابة Firebase المشفرة بأمان تام.",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF78350F)
+                                    )
+                                    Button(
+                                        onClick = onSignInWithGoogle,
+                                        enabled = !isCloudLoading,
+                                        colors = ButtonDefaults.buttonColors(containerColor = MandoubakNavy),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isCloudLoading) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("جاري الاتصال بـ Google...", color = Color.White, fontSize = 12.sp)
+                                        } else {
+                                            Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Sign in with Google (تسجيل الدخول بحساب Google)", color = Color.White, fontSize = 12.sp)
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column {
+                                                Text(
+                                                    text = "متصل بسحابة Firebase",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MandoubakNavy
+                                                )
+                                                Text(
+                                                    text = cloudUserEmail ?: "مستخدم Google",
+                                                    fontSize = 11.sp,
+                                                    color = MandoubakTextSecondary
+                                                )
+                                            }
+                                        }
+                                        TextButton(onClick = onSignOutFromCloud) {
+                                            Text("تسجيل الخروج", fontSize = 11.sp, color = Color(0xFFDC2626))
+                                        }
+                                    }
+
+                                    // Last Cloud Backup Date & Time (if exists)
+                                    val lastCloudBackup = cloudBackups.maxByOrNull { it.timestamp }
+                                    if (lastCloudBackup != null) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFFF1F5F9))
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "آخر نسخة احتياطية سحابية: ${lastCloudBackup.formattedDate}",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MandoubakNavy
+                                                )
+                                            }
+                                            Text(
+                                                text = "${lastCloudBackup.totalRecords} سجل",
+                                                fontSize = 10.5.sp,
+                                                color = MandoubakTextSecondary
+                                            )
+                                        }
+                                    }
+
+                                    // Create Backup Button
+                                    Button(
+                                        onClick = onUploadCloudBackup,
+                                        enabled = !isCloudLoading,
+                                        colors = ButtonDefaults.buttonColors(containerColor = MandoubakBlue),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isCloudLoading) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("جاري إنشاء ورفع النسخة الاحتياطية...", color = Color.White, fontSize = 12.sp)
+                                        } else {
+                                            Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Create Backup (إنشاء نسخة احتياطية سحابية)", color = Color.White, fontSize = 12.sp)
+                                        }
+                                    }
+
+                                    // Restore Backup Button (Downloads and restores latest backup from Firebase)
+                                    Button(
+                                        onClick = {
+                                            val latest = cloudBackups.maxByOrNull { it.timestamp }
+                                            if (latest != null) {
+                                                cloudBackupToRestore = latest
+                                            } else {
+                                                onRefreshCloudBackups()
+                                            }
+                                        },
+                                        enabled = !isCloudLoading && cloudBackups.isNotEmpty(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MandoubakNavy),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isCloudLoading) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("جاري استعادة النسخة السحابية...", color = Color.White, fontSize = 12.sp)
+                                        } else {
+                                            Icon(Icons.Default.Restore, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Restore Backup (استعادة النسخة الاحتياطية)", color = Color.White, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Cloud Status Message
+                    cloudStatusMessage?.let { msg ->
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFECFDF5)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = msg,
+                                    color = Color(0xFF059669),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Cloud Backups List
+                    if (isCloudSignedIn) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "النسخ السحابية المحفوظة (${cloudBackups.size})",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MandoubakNavy
+                                )
+                                TextButton(
+                                    onClick = onRefreshCloudBackups,
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = MandoubakBlue)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("تحديث", fontSize = 11.sp, color = MandoubakBlue)
+                                }
+                            }
+                        }
+
+                        if (cloudBackups.isEmpty()) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "لا توجد نسخ سحابية مخزنة حتى الآن. اضغط زر 'رفع نسخة احتياطية سحابية' لحفظ نسختك الأولى على Firebase.",
+                                        fontSize = 11.5.sp,
+                                        color = MandoubakTextSecondary,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            items(cloudBackups) { cloudBackup ->
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Icon(Icons.Default.CloudDone, contentDescription = null, tint = MandoubakBlue, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = cloudBackup.title,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 12.sp,
+                                                    color = MandoubakNavy,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(Color(0xFFEFF6FF))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "سحابي Firebase",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MandoubakBlue
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            text = "${cloudBackup.formattedDate} • ${cloudBackup.formattedSize} • ${cloudBackup.totalRecords} سجل",
+                                            fontSize = 11.sp,
+                                            color = MandoubakTextSecondary
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Button(
+                                                onClick = { cloudBackupToRestore = cloudBackup },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MandoubakNavy),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("استعادة محلياً", fontSize = 11.sp, color = Color.White)
+                                            }
+
+                                            Spacer(modifier = Modifier.width(6.dp))
+
+                                            IconButton(
+                                                onClick = { cloudBackupToDelete = cloudBackup },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ========================================================
+                // TAB 1: LOCAL BACKUP (ROOM DATABASE)
+                // ========================================================
+                if (selectedTab == 1) {
+                    // Auto-backup configuration card
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
@@ -616,6 +1132,7 @@ fun BackupRestoreDialog(
                     }
                 }
             }
+        }
         },
         confirmButton = {
             Button(

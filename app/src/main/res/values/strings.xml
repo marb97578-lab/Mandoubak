@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Mandoubak</string>
+    <string name="default_web_client_id" translatable="false">588817481722-9dv42ns9eioud3dfcresd65654lu7n4u.apps.googleusercontent.com</string>
 </resources>

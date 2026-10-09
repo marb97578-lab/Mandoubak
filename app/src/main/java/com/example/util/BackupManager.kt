@@ -95,6 +95,22 @@ data class BackupPayload(
     val stockMovements: List<StockMovementEntity>
 )
 
+data class GeneratedBackupPackage(
+    val rootJsonString: String,
+    val checksumSha256: String,
+    val totalRecords: Int,
+    val timestamp: Long,
+    val productsCount: Int,
+    val clientsCount: Int,
+    val suppliersCount: Int,
+    val invoicesCount: Int,
+    val purchasesCount: Int,
+    val receiptsCount: Int,
+    val supplierPaymentsCount: Int,
+    val expensesCount: Int,
+    val stockMovementsCount: Int
+)
+
 object BackupManager {
 
     private const val PREFS_NAME = "mandoubak_backup_prefs"
@@ -169,8 +185,261 @@ object BackupManager {
     }
 
     // -------------------------------------------------------------
-    // Create Backup File
+    // Create Backup File & Package
     // -------------------------------------------------------------
+
+    suspend fun generateBackupPackage(
+        appDao: AppDao,
+        settings: BackupSettingsData,
+        backupType: String = "MANUAL",
+        timestamp: Long = System.currentTimeMillis()
+    ): GeneratedBackupPackage {
+        val products = appDao.getAllProductsList()
+        val clients = appDao.getAllClientsList()
+        val suppliers = appDao.getAllSuppliersList()
+        val invoices = appDao.getAllInvoicesList()
+        val purchases = appDao.getAllPurchasesList()
+        val receipts = appDao.getAllReceiptsList()
+        val supplierPayments = appDao.getAllSupplierPaymentsList()
+        val expenses = appDao.getAllExpensesList()
+        val stockMovements = appDao.getAllStockMovementsList()
+
+        val totalRecords = products.size + clients.size + suppliers.size +
+                invoices.size + purchases.size + receipts.size +
+                supplierPayments.size + expenses.size + stockMovements.size
+
+        // Construct JSON data payload
+        val dataObj = JSONObject().apply {
+            put("formatVersion", CURRENT_FORMAT_VERSION)
+            put("appName", APP_IDENTIFIER)
+            put("timestamp", timestamp)
+            put("backupType", backupType)
+
+            // Settings
+            val settingsObj = JSONObject().apply {
+                put("companyName", settings.companyName)
+                put("representativeName", settings.representativeName)
+                put("taxNumber", settings.taxNumber)
+                put("phone", settings.phone)
+                put("address", settings.address)
+                put("currencySymbol", settings.currencySymbol)
+                put("selectedLanguage", settings.selectedLanguage)
+                put("autoBackupEnabled", settings.autoBackupEnabled)
+                put("autoBackupFrequency", settings.autoBackupFrequency)
+                put("lastBackupTimestamp", timestamp)
+                put("themeId", settings.themeId)
+                put("themeMode", settings.themeMode)
+                put("customAccent", settings.customAccent)
+                put("cardStyle", settings.cardStyle)
+                put("textColorOption", settings.textColorOption)
+                put("symbolPlacement", settings.symbolPlacement)
+                put("decimalPlaces", settings.decimalPlaces)
+                put("expirationAlertsEnabled", settings.expirationAlertsEnabled)
+                put("expirationDaysThreshold", settings.expirationDaysThreshold)
+                put("lowStockAlertsEnabled", settings.lowStockAlertsEnabled)
+                put("lowStockThreshold", settings.lowStockThreshold)
+                put("backupRemindersEnabled", settings.backupRemindersEnabled)
+                put("backupReminderFrequency", settings.backupReminderFrequency)
+            }
+            put("settings", settingsObj)
+
+            // Products
+            val productsArr = JSONArray()
+            products.forEach { p ->
+                productsArr.put(JSONObject().apply {
+                    put("id", p.id)
+                    put("name", p.name)
+                    put("barcode", p.barcode)
+                    put("batchNumber", p.batchNumber)
+                    put("manufacturingDate", p.manufacturingDate)
+                    put("expirationDate", p.expirationDate)
+                    put("costPrice", p.costPrice)
+                    put("salePrice", p.salePrice)
+                    put("stockQuantity", p.stockQuantity)
+                    put("reservedQuantity", p.reservedQuantity)
+                    put("minStockThreshold", p.minStockThreshold)
+                    put("unit", p.unit)
+                    put("category", p.category)
+                    put("supplierName", p.supplierName)
+                    put("notes", p.notes)
+                    put("imageUri", p.imageUri)
+                    put("createdAt", p.createdAt)
+                })
+            }
+            put("products", productsArr)
+
+            // Clients
+            val clientsArr = JSONArray()
+            clients.forEach { c ->
+                clientsArr.put(JSONObject().apply {
+                    put("id", c.id)
+                    put("name", c.name)
+                    put("phone", c.phone)
+                    put("address", c.address)
+                    put("location", c.location)
+                    put("currentBalance", c.currentBalance)
+                    put("notes", c.notes)
+                    put("createdAt", c.createdAt)
+                })
+            }
+            put("clients", clientsArr)
+
+            // Suppliers
+            val suppliersArr = JSONArray()
+            suppliers.forEach { s ->
+                suppliersArr.put(JSONObject().apply {
+                    put("id", s.id)
+                    put("name", s.name)
+                    put("phone", s.phone)
+                    put("address", s.address)
+                    put("companyName", s.companyName)
+                    put("outstandingBalance", s.outstandingBalance)
+                    put("notes", s.notes)
+                    put("createdAt", s.createdAt)
+                })
+            }
+            put("suppliers", suppliersArr)
+
+            // Sales Invoices
+            val invoicesArr = JSONArray()
+            invoices.forEach { inv ->
+                invoicesArr.put(JSONObject().apply {
+                    put("id", inv.id)
+                    put("invoiceNumber", inv.invoiceNumber)
+                    put("clientId", inv.clientId)
+                    put("clientName", inv.clientName)
+                    put("subtotalAmount", inv.subtotalAmount)
+                    put("discountAmount", inv.discountAmount)
+                    put("totalAmount", inv.totalAmount)
+                    put("paidAmount", inv.paidAmount)
+                    put("remainingAmount", inv.remainingAmount)
+                    put("profitAmount", inv.profitAmount)
+                    put("isCredit", inv.isCredit)
+                    put("paymentMethod", inv.paymentMethod)
+                    put("itemsSummary", inv.itemsSummary)
+                    put("notes", inv.notes)
+                    put("dateMillis", inv.dateMillis)
+                })
+            }
+            put("salesInvoices", invoicesArr)
+
+            // Purchases
+            val purchasesArr = JSONArray()
+            purchases.forEach { pur ->
+                purchasesArr.put(JSONObject().apply {
+                    put("id", pur.id)
+                    put("invoiceNumber", pur.invoiceNumber)
+                    put("supplierId", pur.supplierId)
+                    put("supplierName", pur.supplierName)
+                    put("dateMillis", pur.dateMillis)
+                    put("subtotalAmount", pur.subtotalAmount)
+                    put("discountAmount", pur.discountAmount)
+                    put("totalAmount", pur.totalAmount)
+                    put("paidAmount", pur.paidAmount)
+                    put("remainingAmount", pur.remainingAmount)
+                    put("paymentMethod", pur.paymentMethod)
+                    put("isCredit", pur.isCredit)
+                    put("itemsSummary", pur.itemsSummary)
+                    put("notes", pur.notes)
+                })
+            }
+            put("purchases", purchasesArr)
+
+            // Receipts (سندات القبض من العملاء)
+            val receiptsArr = JSONArray()
+            receipts.forEach { r ->
+                receiptsArr.put(JSONObject().apply {
+                    put("id", r.id)
+                    put("receiptNumber", r.receiptNumber)
+                    put("clientId", r.clientId)
+                    put("clientName", r.clientName)
+                    put("amount", r.amount)
+                    put("paymentMethod", r.paymentMethod)
+                    put("notes", r.notes)
+                    put("dateMillis", r.dateMillis)
+                })
+            }
+            put("receipts", receiptsArr)
+
+            // Supplier Payments (سندات صرف الموردين)
+            val supplierPaymentsArr = JSONArray()
+            supplierPayments.forEach { sp ->
+                supplierPaymentsArr.put(JSONObject().apply {
+                    put("id", sp.id)
+                    put("paymentNumber", sp.paymentNumber)
+                    put("supplierId", sp.supplierId)
+                    put("supplierName", sp.supplierName)
+                    put("amount", sp.amount)
+                    put("paymentMethod", sp.paymentMethod)
+                    put("notes", sp.notes)
+                    put("dateMillis", sp.dateMillis)
+                })
+            }
+            put("supplierPayments", supplierPaymentsArr)
+
+            // Expenses
+            val expensesArr = JSONArray()
+            expenses.forEach { exp ->
+                expensesArr.put(JSONObject().apply {
+                    put("id", exp.id)
+                    put("title", exp.title)
+                    put("category", exp.category)
+                    put("amount", exp.amount)
+                    put("dateMillis", exp.dateMillis)
+                    put("paymentMethod", exp.paymentMethod)
+                    put("notes", exp.notes)
+                })
+            }
+            put("expenses", expensesArr)
+
+            // Stock Movements
+            val stockArr = JSONArray()
+            stockMovements.forEach { sm ->
+                stockArr.put(JSONObject().apply {
+                    put("id", sm.id)
+                    put("productId", sm.productId)
+                    put("productName", sm.productName)
+                    put("movementType", sm.movementType)
+                    put("movementTypeArabic", sm.movementTypeArabic)
+                    put("quantity", sm.quantity)
+                    put("previousStock", sm.previousStock)
+                    put("newStock", sm.newStock)
+                    put("referenceNumber", sm.referenceNumber)
+                    put("reason", sm.reason)
+                    put("dateMillis", sm.dateMillis)
+                })
+            }
+            put("stockMovements", stockArr)
+        }
+
+        val dataString = dataObj.toString(2)
+        val checksum = calculateSha256(dataString)
+
+        val rootObj = JSONObject().apply {
+            put("appName", APP_IDENTIFIER)
+            put("formatVersion", CURRENT_FORMAT_VERSION)
+            put("checksumSha256", checksum)
+            put("exportedAt", timestamp)
+            put("totalRecords", totalRecords)
+            put("payload", dataObj)
+        }
+
+        return GeneratedBackupPackage(
+            rootJsonString = rootObj.toString(2),
+            checksumSha256 = checksum,
+            totalRecords = totalRecords,
+            timestamp = timestamp,
+            productsCount = products.size,
+            clientsCount = clients.size,
+            suppliersCount = suppliers.size,
+            invoicesCount = invoices.size,
+            purchasesCount = purchases.size,
+            receiptsCount = receipts.size,
+            supplierPaymentsCount = supplierPayments.size,
+            expensesCount = expenses.size,
+            stockMovementsCount = stockMovements.size
+        )
+    }
 
     suspend fun createBackup(
         context: Context,
@@ -179,21 +448,9 @@ object BackupManager {
         backupType: String = "MANUAL" // "MANUAL", "DAILY", "WEEKLY"
     ): Result<BackupFileInfo> {
         return try {
-            val products = appDao.getAllProductsList()
-            val clients = appDao.getAllClientsList()
-            val suppliers = appDao.getAllSuppliersList()
-            val invoices = appDao.getAllInvoicesList()
-            val purchases = appDao.getAllPurchasesList()
-            val receipts = appDao.getAllReceiptsList()
-            val supplierPayments = appDao.getAllSupplierPaymentsList()
-            val expenses = appDao.getAllExpensesList()
-            val stockMovements = appDao.getAllStockMovementsList()
-
-            val totalRecords = products.size + clients.size + suppliers.size +
-                    invoices.size + purchases.size + receipts.size +
-                    supplierPayments.size + expenses.size + stockMovements.size
-
             val now = System.currentTimeMillis()
+            val pkg = generateBackupPackage(appDao, settings, backupType, now)
+
             val prefix = when (backupType) {
                 "DAILY" -> "mandoubak_auto_daily"
                 "WEEKLY" -> "mandoubak_auto_weekly"
@@ -203,228 +460,10 @@ object BackupManager {
             val backupsDir = getBackupsDir(context)
             val backupFile = File(backupsDir, fileName)
 
-            // Construct JSON data payload
-            val dataObj = JSONObject().apply {
-                put("formatVersion", CURRENT_FORMAT_VERSION)
-                put("appName", APP_IDENTIFIER)
-                put("timestamp", now)
-                put("backupType", backupType)
-
-                // Settings
-                val settingsObj = JSONObject().apply {
-                    put("companyName", settings.companyName)
-                    put("representativeName", settings.representativeName)
-                    put("taxNumber", settings.taxNumber)
-                    put("phone", settings.phone)
-                    put("address", settings.address)
-                    put("currencySymbol", settings.currencySymbol)
-                    put("selectedLanguage", settings.selectedLanguage)
-                    put("autoBackupEnabled", settings.autoBackupEnabled)
-                    put("autoBackupFrequency", settings.autoBackupFrequency)
-                    put("lastBackupTimestamp", now)
-                    put("themeId", settings.themeId)
-                    put("themeMode", settings.themeMode)
-                    put("customAccent", settings.customAccent)
-                    put("cardStyle", settings.cardStyle)
-                    put("textColorOption", settings.textColorOption)
-                    put("symbolPlacement", settings.symbolPlacement)
-                    put("decimalPlaces", settings.decimalPlaces)
-                    put("expirationAlertsEnabled", settings.expirationAlertsEnabled)
-                    put("expirationDaysThreshold", settings.expirationDaysThreshold)
-                    put("lowStockAlertsEnabled", settings.lowStockAlertsEnabled)
-                    put("lowStockThreshold", settings.lowStockThreshold)
-                    put("backupRemindersEnabled", settings.backupRemindersEnabled)
-                    put("backupReminderFrequency", settings.backupReminderFrequency)
-                }
-                put("settings", settingsObj)
-
-                // Products
-                val productsArr = JSONArray()
-                products.forEach { p ->
-                    productsArr.put(JSONObject().apply {
-                        put("id", p.id)
-                        put("name", p.name)
-                        put("barcode", p.barcode)
-                        put("batchNumber", p.batchNumber)
-                        put("manufacturingDate", p.manufacturingDate)
-                        put("expirationDate", p.expirationDate)
-                        put("costPrice", p.costPrice)
-                        put("salePrice", p.salePrice)
-                        put("stockQuantity", p.stockQuantity)
-                        put("reservedQuantity", p.reservedQuantity)
-                        put("minStockThreshold", p.minStockThreshold)
-                        put("unit", p.unit)
-                        put("category", p.category)
-                        put("supplierName", p.supplierName)
-                        put("notes", p.notes)
-                        put("imageUri", p.imageUri)
-                        put("createdAt", p.createdAt)
-                    })
-                }
-                put("products", productsArr)
-
-                // Clients
-                val clientsArr = JSONArray()
-                clients.forEach { c ->
-                    clientsArr.put(JSONObject().apply {
-                        put("id", c.id)
-                        put("name", c.name)
-                        put("phone", c.phone)
-                        put("address", c.address)
-                        put("location", c.location)
-                        put("currentBalance", c.currentBalance)
-                        put("notes", c.notes)
-                        put("createdAt", c.createdAt)
-                    })
-                }
-                put("clients", clientsArr)
-
-                // Suppliers
-                val suppliersArr = JSONArray()
-                suppliers.forEach { s ->
-                    suppliersArr.put(JSONObject().apply {
-                        put("id", s.id)
-                        put("name", s.name)
-                        put("phone", s.phone)
-                        put("address", s.address)
-                        put("companyName", s.companyName)
-                        put("outstandingBalance", s.outstandingBalance)
-                        put("notes", s.notes)
-                        put("createdAt", s.createdAt)
-                    })
-                }
-                put("suppliers", suppliersArr)
-
-                // Sales Invoices
-                val invoicesArr = JSONArray()
-                invoices.forEach { inv ->
-                    invoicesArr.put(JSONObject().apply {
-                        put("id", inv.id)
-                        put("invoiceNumber", inv.invoiceNumber)
-                        put("clientId", inv.clientId)
-                        put("clientName", inv.clientName)
-                        put("subtotalAmount", inv.subtotalAmount)
-                        put("discountAmount", inv.discountAmount)
-                        put("totalAmount", inv.totalAmount)
-                        put("paidAmount", inv.paidAmount)
-                        put("remainingAmount", inv.remainingAmount)
-                        put("profitAmount", inv.profitAmount)
-                        put("isCredit", inv.isCredit)
-                        put("paymentMethod", inv.paymentMethod)
-                        put("itemsSummary", inv.itemsSummary)
-                        put("notes", inv.notes)
-                        put("dateMillis", inv.dateMillis)
-                    })
-                }
-                put("salesInvoices", invoicesArr)
-
-                // Purchases
-                val purchasesArr = JSONArray()
-                purchases.forEach { pur ->
-                    purchasesArr.put(JSONObject().apply {
-                        put("id", pur.id)
-                        put("invoiceNumber", pur.invoiceNumber)
-                        put("supplierId", pur.supplierId)
-                        put("supplierName", pur.supplierName)
-                        put("dateMillis", pur.dateMillis)
-                        put("subtotalAmount", pur.subtotalAmount)
-                        put("discountAmount", pur.discountAmount)
-                        put("totalAmount", pur.totalAmount)
-                        put("paidAmount", pur.paidAmount)
-                        put("remainingAmount", pur.remainingAmount)
-                        put("paymentMethod", pur.paymentMethod)
-                        put("isCredit", pur.isCredit)
-                        put("itemsSummary", pur.itemsSummary)
-                        put("notes", pur.notes)
-                    })
-                }
-                put("purchases", purchasesArr)
-
-                // Receipts (سندات القبض من العملاء)
-                val receiptsArr = JSONArray()
-                receipts.forEach { r ->
-                    receiptsArr.put(JSONObject().apply {
-                        put("id", r.id)
-                        put("receiptNumber", r.receiptNumber)
-                        put("clientId", r.clientId)
-                        put("clientName", r.clientName)
-                        put("amount", r.amount)
-                        put("paymentMethod", r.paymentMethod)
-                        put("notes", r.notes)
-                        put("dateMillis", r.dateMillis)
-                    })
-                }
-                put("receipts", receiptsArr)
-
-                // Supplier Payments (سندات صرف الموردين)
-                val supplierPaymentsArr = JSONArray()
-                supplierPayments.forEach { sp ->
-                    supplierPaymentsArr.put(JSONObject().apply {
-                        put("id", sp.id)
-                        put("paymentNumber", sp.paymentNumber)
-                        put("supplierId", sp.supplierId)
-                        put("supplierName", sp.supplierName)
-                        put("amount", sp.amount)
-                        put("paymentMethod", sp.paymentMethod)
-                        put("notes", sp.notes)
-                        put("dateMillis", sp.dateMillis)
-                    })
-                }
-                put("supplierPayments", supplierPaymentsArr)
-
-                // Expenses
-                val expensesArr = JSONArray()
-                expenses.forEach { exp ->
-                    expensesArr.put(JSONObject().apply {
-                        put("id", exp.id)
-                        put("title", exp.title)
-                        put("category", exp.category)
-                        put("amount", exp.amount)
-                        put("dateMillis", exp.dateMillis)
-                        put("paymentMethod", exp.paymentMethod)
-                        put("notes", exp.notes)
-                    })
-                }
-                put("expenses", expensesArr)
-
-                // Stock Movements
-                val stockArr = JSONArray()
-                stockMovements.forEach { sm ->
-                    stockArr.put(JSONObject().apply {
-                        put("id", sm.id)
-                        put("productId", sm.productId)
-                        put("productName", sm.productName)
-                        put("movementType", sm.movementType)
-                        put("movementTypeArabic", sm.movementTypeArabic)
-                        put("quantity", sm.quantity)
-                        put("previousStock", sm.previousStock)
-                        put("newStock", sm.newStock)
-                        put("referenceNumber", sm.referenceNumber)
-                        put("reason", sm.reason)
-                        put("dateMillis", sm.dateMillis)
-                    })
-                }
-                put("stockMovements", stockArr)
-            }
-
-            // Calculate SHA-256 Checksum on the data object string to prevent data corruption
-            val dataString = dataObj.toString(2)
-            val checksum = calculateSha256(dataString)
-
-            // Final Root Container
-            val rootObj = JSONObject().apply {
-                put("appName", APP_IDENTIFIER)
-                put("formatVersion", CURRENT_FORMAT_VERSION)
-                put("checksumSha256", checksum)
-                put("exportedAt", now)
-                put("totalRecords", totalRecords)
-                put("payload", dataObj)
-            }
-
             // Write securely to disk
             FileOutputStream(backupFile).use { fos ->
                 OutputStreamWriter(fos, Charsets.UTF_8).use { writer ->
-                    writer.write(rootObj.toString(2))
+                    writer.write(pkg.rootJsonString)
                     writer.flush()
                 }
             }
@@ -450,7 +489,7 @@ object BackupManager {
                     timestamp = now,
                     formattedDate = displayDateFormat.format(Date(now)),
                     backupType = backupTypeArabic,
-                    recordsCount = totalRecords,
+                    recordsCount = pkg.totalRecords,
                     isValid = true
                 )
             )

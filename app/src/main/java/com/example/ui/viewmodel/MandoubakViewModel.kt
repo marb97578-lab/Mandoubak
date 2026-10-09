@@ -15,6 +15,8 @@ import com.example.data.entity.SaleInvoiceEntity
 import com.example.data.entity.StockMovementEntity
 import com.example.data.entity.SupplierEntity
 import com.example.data.entity.SupplierPaymentEntity
+import com.example.data.cloud.CloudBackupRecord
+import com.example.data.cloud.FirebaseBackupService
 import com.example.data.repository.MandoubakRepository
 import com.example.ui.theme.CardColorStyle
 import com.example.ui.theme.TextColorOption
@@ -92,6 +94,24 @@ class MandoubakViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _backupStatusMessage = MutableStateFlow<String?>(null)
     val backupStatusMessage: StateFlow<String?> = _backupStatusMessage.asStateFlow()
+
+    // Cloud Backup State (Firebase Firestore)
+    private val firebaseBackupService by lazy { FirebaseBackupService(getApplication()) }
+
+    private val _isCloudSignedIn = MutableStateFlow(false)
+    val isCloudSignedIn: StateFlow<Boolean> = _isCloudSignedIn.asStateFlow()
+
+    private val _cloudUserEmail = MutableStateFlow<String?>(null)
+    val cloudUserEmail: StateFlow<String?> = _cloudUserEmail.asStateFlow()
+
+    private val _cloudBackups = MutableStateFlow<List<CloudBackupRecord>>(emptyList())
+    val cloudBackups: StateFlow<List<CloudBackupRecord>> = _cloudBackups.asStateFlow()
+
+    private val _isCloudOperationInProgress = MutableStateFlow(false)
+    val isCloudOperationInProgress: StateFlow<Boolean> = _isCloudOperationInProgress.asStateFlow()
+
+    private val _cloudStatusMessage = MutableStateFlow<String?>(null)
+    val cloudStatusMessage: StateFlow<String?> = _cloudStatusMessage.asStateFlow()
 
     // Operational Dialogs
     private val _showSearchDialog = MutableStateFlow(false)
@@ -438,7 +458,17 @@ class MandoubakViewModel(application: Application) : AndroidViewModel(applicatio
     fun openSettings() { _showSettingsDialog.value = true }
     fun closeSettings() { _showSettingsDialog.value = false }
 
-    fun openBackup() { _showBackupDialog.value = true }
+    fun openBackup() {
+        _showBackupDialog.value = true
+        loadLocalBackups()
+        try {
+            _isCloudSignedIn.value = firebaseBackupService.isUserSignedIn()
+            _cloudUserEmail.value = firebaseBackupService.getCurrentUserEmail()
+            if (_isCloudSignedIn.value) {
+                loadCloudBackups()
+            }
+        } catch (_: Exception) {}
+    }
     fun closeBackup() { _showBackupDialog.value = false }
 
     fun openSubscription() { _showSubscriptionDialog.value = true }
@@ -1197,6 +1227,167 @@ class MandoubakViewModel(application: Application) : AndroidViewModel(applicatio
             if (deleted) {
                 loadLocalBackups()
                 _userMessage.value = "تم حذف ملف النسخة الاحتياطية"
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Cloud Backup Integration (Firebase Firestore & Google Sign-In)
+    // -------------------------------------------------------------
+
+    fun loadCloudBackups() {
+        if (!firebaseBackupService.isUserSignedIn()) {
+            _cloudBackups.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _isCloudOperationInProgress.value = true
+            val result = firebaseBackupService.getCloudBackupsList()
+            _isCloudOperationInProgress.value = false
+            result.onSuccess { list ->
+                _cloudBackups.value = list
+            }.onFailure { err ->
+                _cloudStatusMessage.value = "تعذر مزامنة النسخ السحابية: ${err.localizedMessage ?: "تحقق من اتصال الإنترنت"}"
+            }
+        }
+    }
+
+    fun signInToCloudWithGoogle(activityContext: android.content.Context, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _isCloudOperationInProgress.value = true
+            _cloudStatusMessage.value = "جاري الاتصال بـ Google..."
+            val result = firebaseBackupService.signInWithGoogle(activityContext)
+            _isCloudOperationInProgress.value = false
+            result.onSuccess { user ->
+                _isCloudSignedIn.value = true
+                _cloudUserEmail.value = user.email ?: user.displayName
+                val msg = "تم تسجيل الدخول بنجاح بحساب Google (${user.email ?: user.displayName})"
+                _cloudStatusMessage.value = msg
+                _userMessage.value = msg
+                loadCloudBackups()
+                onResult(true, msg)
+            }.onFailure { err ->
+                val errorMsg = "فشل تسجيل الدخول: ${err.localizedMessage ?: "تعذر إكمال تسجيل الدخول"}"
+                _cloudStatusMessage.value = errorMsg
+                _userMessage.value = errorMsg
+                onResult(false, errorMsg)
+            }
+        }
+    }
+
+    fun signOutFromCloud() {
+        firebaseBackupService.signOut()
+        _isCloudSignedIn.value = false
+        _cloudUserEmail.value = null
+        _cloudBackups.value = emptyList()
+        val msg = "تم تسجيل الخروج من الحساب السحابي"
+        _cloudStatusMessage.value = msg
+        _userMessage.value = msg
+    }
+
+    fun uploadCloudBackup(customTitle: String? = null, onResult: ((Boolean, String) -> Unit)? = null) {
+        if (!firebaseBackupService.isUserSignedIn()) {
+            val msg = "يجب تسجيل الدخول باستخدام حساب Google أولاً للنسخ السحابي"
+            _cloudStatusMessage.value = msg
+            _userMessage.value = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+        viewModelScope.launch {
+            _isCloudOperationInProgress.value = true
+            _cloudStatusMessage.value = "جاري رفع وحفظ نسخة احتياطية على سحابة Firebase..."
+            val settings = getBackupSettingsData()
+            val appDao = AppDatabase.getDatabase(getApplication()).appDao()
+            val result = firebaseBackupService.uploadCloudBackup(
+                appDao = appDao,
+                settings = settings,
+                backupType = "CLOUD",
+                customTitle = customTitle
+            )
+            _isCloudOperationInProgress.value = false
+            result.onSuccess { record ->
+                loadCloudBackups()
+                val msg = "Backup completed successfully. (تم إنشاء النسخة الاحتياطية بنجاح • ${record.formattedDate})"
+                _cloudStatusMessage.value = msg
+                _userMessage.value = msg
+                onResult?.invoke(true, msg)
+            }.onFailure { err ->
+                val errorMsg = "فشل رفع النسخة السحابية: ${err.localizedMessage ?: "تحقق من اتصال الإنترنت"}"
+                _cloudStatusMessage.value = errorMsg
+                _userMessage.value = errorMsg
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
+
+    fun restoreFromCloudBackup(backup: CloudBackupRecord, onFinished: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _isCloudOperationInProgress.value = true
+            _cloudStatusMessage.value = "جاري استعادة النسخة السحابية وتحديث قاعدة البيانات المحلية..."
+            val appDao = AppDatabase.getDatabase(getApplication()).appDao()
+            val result = firebaseBackupService.restoreFromCloudBackup(backup, appDao)
+            _isCloudOperationInProgress.value = false
+
+            result.onSuccess { res ->
+                res.settings?.let { s ->
+                    _companyName.value = s.companyName
+                    _representativeName.value = s.representativeName
+                    _taxNumber.value = s.taxNumber
+                    if (s.phone.isNotBlank()) _phone.value = s.phone
+                    if (s.address.isNotBlank()) _address.value = s.address
+                    _currencySymbol.value = s.currencySymbol
+                    _selectedLanguage.value = s.selectedLanguage
+                    _themeConfig.value = ThemeConfig(
+                        activeThemeId = s.themeId,
+                        themeMode = try { ThemeMode.valueOf(s.themeMode) } catch (_: Exception) { ThemeMode.LIGHT },
+                        customAccentHex = if (s.customAccent.isNotBlank()) s.customAccent else null,
+                        cardColorStyle = try { CardColorStyle.valueOf(s.cardStyle) } catch (_: Exception) { CardColorStyle.CLASSIC_PASTEL },
+                        textColorOption = try { TextColorOption.valueOf(s.textColorOption) } catch (_: Exception) { TextColorOption.DEFAULT_NAVY }
+                    )
+                    _currencyConfig.value = CurrencyConfig(
+                        selectedCode = s.currencySymbol,
+                        customSymbol = s.currencySymbol,
+                        symbolPlacement = try { SymbolPlacement.valueOf(s.symbolPlacement) } catch (_: Exception) { SymbolPlacement.AFTER_AMOUNT },
+                        decimalPlaces = s.decimalPlaces
+                    )
+                    _notificationConfig.value = NotificationConfig(
+                        expirationAlertsEnabled = s.expirationAlertsEnabled,
+                        expirationDaysThreshold = s.expirationDaysThreshold,
+                        lowStockAlertsEnabled = s.lowStockAlertsEnabled,
+                        lowStockThreshold = s.lowStockThreshold,
+                        backupRemindersEnabled = s.backupRemindersEnabled,
+                        backupReminderFrequency = s.backupReminderFrequency
+                    )
+                }
+                loadLocalBackups()
+                loadCloudBackups()
+                val msg = "Backup restored successfully. (تمت استعادة النسخة الاحتياطية بنجاح • ${res.totalRecords} سجل)"
+                _cloudStatusMessage.value = msg
+                _userMessage.value = msg
+                onFinished(true, msg)
+            }.onFailure { err ->
+                val errorMsg = "فشل استعادة النسخة السحابية: ${err.localizedMessage ?: "بيانات غير صالحة"}"
+                _cloudStatusMessage.value = errorMsg
+                _userMessage.value = errorMsg
+                onFinished(false, errorMsg)
+            }
+        }
+    }
+
+    fun deleteCloudBackup(backup: CloudBackupRecord) {
+        viewModelScope.launch {
+            _isCloudOperationInProgress.value = true
+            val result = firebaseBackupService.deleteCloudBackup(backup.id)
+            _isCloudOperationInProgress.value = false
+            result.onSuccess {
+                loadCloudBackups()
+                val msg = "تم حذف النسخة السحابية (${backup.title})"
+                _cloudStatusMessage.value = msg
+                _userMessage.value = msg
+            }.onFailure { err ->
+                val errorMsg = "فشل حذف النسخة السحابية: ${err.localizedMessage ?: "خطأ غير متوقع"}"
+                _cloudStatusMessage.value = errorMsg
+                _userMessage.value = errorMsg
             }
         }
     }

@@ -286,8 +286,9 @@ fun DrawerContent(
                 )
 
                 DrawerMenuItem(
-                    title = "النسخ الاحتياطي والاستعادة",
+                    title = "Backup & Restore (النسخ الاحتياطي والاستعادة)",
                     icon = Icons.Default.Backup,
+                    badge = "Firebase",
                     onClick = {
                         onCloseDrawer()
                         onOpenBackup()

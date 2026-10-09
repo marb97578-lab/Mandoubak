@@ -135,6 +135,12 @@ fun MandoubakApp(viewModel: MandoubakViewModel) {
     val isBackupLoading by viewModel.isBackupOperationInProgress.collectAsStateWithLifecycle()
     val backupStatusMessage by viewModel.backupStatusMessage.collectAsStateWithLifecycle()
 
+    val isCloudSignedIn by viewModel.isCloudSignedIn.collectAsStateWithLifecycle()
+    val cloudUserEmail by viewModel.cloudUserEmail.collectAsStateWithLifecycle()
+    val cloudBackups by viewModel.cloudBackups.collectAsStateWithLifecycle()
+    val isCloudLoading by viewModel.isCloudOperationInProgress.collectAsStateWithLifecycle()
+    val cloudStatusMessage by viewModel.cloudStatusMessage.collectAsStateWithLifecycle()
+
     val pickBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -671,6 +677,35 @@ fun MandoubakApp(viewModel: MandoubakViewModel) {
             },
             onImportExternalFile = {
                 pickBackupLauncher.launch("application/json")
+            },
+            isCloudSignedIn = isCloudSignedIn,
+            cloudUserEmail = cloudUserEmail,
+            cloudBackups = cloudBackups,
+            isCloudLoading = isCloudLoading,
+            cloudStatusMessage = cloudStatusMessage,
+            onSignInWithGoogle = {
+                viewModel.signInToCloudWithGoogle(context) { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+            onSignOutFromCloud = {
+                viewModel.signOutFromCloud()
+            },
+            onUploadCloudBackup = {
+                viewModel.uploadCloudBackup { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+            onRefreshCloudBackups = {
+                viewModel.loadCloudBackups()
+            },
+            onRestoreCloudBackup = { cloudBackup ->
+                viewModel.restoreFromCloudBackup(cloudBackup) { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+            onDeleteCloudBackup = { cloudBackup ->
+                viewModel.deleteCloudBackup(cloudBackup)
             },
             onDismiss = { viewModel.closeBackup() }
         )
